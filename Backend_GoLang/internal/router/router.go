@@ -1,4 +1,3 @@
-// Backend_GoLang/internal/router/router.go
 package router
 
 import (
@@ -31,14 +30,14 @@ func parseCORSOrigins() (exact []string, suffixes []string) {
 	}
 	for _, s := range strings.Split(raw, ",") {
 		s = strings.TrimSpace(s)
-		s = strings.TrimRight(s, "/") // << quan trọng
+		s = strings.TrimRight(s, "/") // QUAN TRỌNG: bỏ dấu "/" cuối
 		if s == "" {
 			continue
 		}
 		if strings.HasPrefix(s, "*.") {
 			suffixes = append(suffixes, strings.TrimPrefix(s, "*."))
 		} else {
-			exact = append(exact, s) // ví dụ: https://quanlinhansu.netlify.app
+			exact = append(exact, s)
 		}
 	}
 	return
@@ -59,7 +58,7 @@ func New() *gin.Engine {
 		MaxAge:           12 * time.Hour,
 	}
 
-	// Luôn dùng AllowOriginFunc để support wildcard
+	// Dùng AllowOriginFunc để hỗ trợ wildcard
 	cfg.AllowOriginFunc = func(origin string) bool {
 		u, err := url.Parse(origin)
 		if err != nil {
@@ -68,8 +67,8 @@ func New() *gin.Engine {
 			}
 			return false
 		}
-		o := u.Scheme + "://" + u.Host // https://quanlinhansu.netlify.app
-		host := u.Hostname()           // quanlinhansu.netlify.app
+		o := u.Scheme + "://" + u.Host
+		host := u.Hostname()
 
 		for _, e := range exact {
 			if o == e {
@@ -94,14 +93,15 @@ func New() *gin.Engine {
 	}
 
 	r.Use(cors.New(cfg))
+
+	// Bảo đảm mọi preflight đều được trả về 204 (phòng khi middleware bị lách)
+	r.OPTIONS("/*path", func(c *gin.Context) { c.Status(204) })
 	// ===== End CORS =====
 
 	// Swagger
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	// ===== DB & DI các phần còn lại giữ nguyên của bạn =====
-	// ... (phần dưới giữ nguyên)
-	// DB
+	// ===== DB & DI (giữ nguyên phần còn lại của bạn) =====
 	cfgDB := database.LoadConfigFromEnv()
 	db, err := database.Open(cfgDB)
 	if err != nil {
@@ -138,19 +138,14 @@ func New() *gin.Engine {
 		_ = db.Model(&admin).Update("role", "admin").Error
 	}
 
-	// DI
 	userRepo := repository.NewMySQLUserRepo(db)
 	authRepo := repository.NewMySQLAuthRepo(db)
 	jwtCfg := services.LoadJWTConfigFromEnv()
 
-	// Handlers
 	u := handlers.NewUserHandler(userRepo)
 	a := handlers.NewAuthHandler(userRepo, authRepo, jwtCfg)
-
-	// Middleware
 	authMW := middleware.WithAuth(jwtCfg.Secret)
 
-	// Routes
 	v1 := r.Group("/api/v1")
 	{
 		v1.POST("/auth/register", a.Register)
