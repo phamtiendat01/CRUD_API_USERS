@@ -9,3 +9,4 @@ export function Protected({ children, allow=["user","admin"]}:{children:JSX.Elem
   if (!state.role || !allow.includes(state.role as any)) return <Navigate to="/login" replace />;
   return children;
 }
+

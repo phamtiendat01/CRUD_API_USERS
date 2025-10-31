@@ -47,9 +47,7 @@ export default function Register() {
               </svg>
             </div>
             <h1 className="text-2xl font-semibold">Tạo tài khoản</h1>
-            <p className="text-sm text-gray-500">
-              Mọi tài khoản mới đều là <b>user</b>.
-            </p>
+            <p className="text-sm text-gray-500">Bắt đầu hành trình của bạn với chúng tôi 🚀</p >
           </div>
 
           {/* Form */}
