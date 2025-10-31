@@ -1,6 +1,7 @@
 package router
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -21,6 +22,7 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 func parseCORSOrigins() (exact []string, suffixes []string) {
@@ -52,15 +54,14 @@ func New() *gin.Engine {
 
 	cfg := cors.Config{
 		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		// thêm cả dạng lowercase để chắc ăn
-		AllowHeaders:  []string{"Authorization", "authorization", "Content-Type", "content-type", "Accept", "X-Requested-With"},
-		ExposeHeaders: []string{"Content-Length", "Set-Cookie"},
-		// nếu bạn dùng cookie/refresh token
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
+		// chấp nhận cả dạng viết hoa/thường của header
+		AllowHeaders:     []string{"Authorization", "authorization", "Content-Type", "content-type", "Accept", "X-Requested-With"},
+		ExposeHeaders:    []string{"Content-Length", "Set-Cookie"},
+		AllowCredentials: true,           // nếu dùng cookie/refresh token
+		MaxAge:           12 * time.Hour, // cache preflight
 	}
 
-	// hỗ trợ wildcard (*.domain)
+	// Hỗ trợ wildcard (*.domain)
 	cfg.AllowOriginFunc = func(origin string) bool {
 		u, err := url.Parse(origin)
 		if err != nil {
@@ -95,11 +96,11 @@ func New() *gin.Engine {
 	}
 
 	r.Use(cors.New(cfg))
-	// đảm bảo preflight luôn có 204 và có headers CORS
+	// đảm bảo preflight luôn có 204
 	r.OPTIONS("/*path", func(c *gin.Context) { c.Status(204) })
 	// ===== End CORS =====
 
-	// Healthcheck: test nhanh app có chạy không
+	// Healthcheck
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
 
 	// Swagger
@@ -114,10 +115,12 @@ func New() *gin.Engine {
 	if err := db.AutoMigrate(&models.User{}); err != nil {
 		panic("migrate failed: " + err.Error())
 	}
+
 	hash := func(p string) string {
 		b, _ := bcrypt.GenerateFromPassword([]byte(p), bcrypt.DefaultCost)
 		return string(b)
 	}
+
 	adminEmail := os.Getenv("ADMIN_EMAIL")
 	if adminEmail == "" {
 		adminEmail = "admin@example.com"
@@ -126,21 +129,45 @@ func New() *gin.Engine {
 	if adminPass == "" {
 		adminPass = "Admin@123"
 	}
+
+	// ---- ensure admin: an toàn & idempotent ----
 	var admin models.User
-	if err := db.
-		Where("email = ?", adminEmail).
-		Attrs(models.User{
+	// tìm theo username OR email (tránh tạo trùng)
+	if err := db.Where("username = ? OR email = ?", "admin", adminEmail).First(&admin).Error; err != nil &&
+		!errors.Is(err, gorm.ErrRecordNotFound) {
+		panic("query admin failed: " + err.Error())
+	}
+
+	if admin.ID == 0 {
+		// chưa có -> tạo mới
+		admin = models.User{
 			Username:     "admin",
+			Email:        adminEmail,
 			FullName:     "Administrator",
 			Role:         "admin",
+			Status:       "active",
 			PasswordHash: hash(adminPass),
-		}).
-		FirstOrCreate(&admin).Error; err != nil {
-		panic("ensure admin failed: " + err.Error())
+		}
+		if err := db.Create(&admin).Error; err != nil {
+			// nếu race condition/duplicate thì bỏ qua
+			if !strings.Contains(err.Error(), "Duplicate entry") {
+				panic("create admin failed: " + err.Error())
+			}
+		}
+	} else {
+		// đã có -> đảm bảo vai trò & email
+		updates := map[string]any{}
+		if admin.Role != "admin" {
+			updates["role"] = "admin"
+		}
+		if admin.Email == "" {
+			updates["email"] = adminEmail
+		}
+		if len(updates) > 0 {
+			_ = db.Model(&admin).Updates(updates).Error
+		}
 	}
-	if admin.Role != "admin" {
-		_ = db.Model(&admin).Update("role", "admin").Error
-	}
+	// ---- end ensure admin ----
 
 	userRepo := repository.NewMySQLUserRepo(db)
 	authRepo := repository.NewMySQLAuthRepo(db)
