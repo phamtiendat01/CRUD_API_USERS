@@ -1,10 +1,12 @@
 package router
 
 import (
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
-	_ "crud_api_us/docs" // nạp swagger docs
+	_ "crud_api_us/docs"
 
 	"crud_api_us/internal/database"
 	"crud_api_us/internal/handlers"
@@ -20,28 +22,85 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+func parseCORSOrigins() (exact []string, suffixes []string) {
+	raw := os.Getenv("CORS_ORIGINS")
+	if raw == "" {
+		// fallback để dev local không bị chặn
+		raw = "http://localhost:5173"
+	}
+	for _, s := range strings.Split(raw, ",") {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		// Cho phép pattern dạng "*.domain.com"
+		if strings.HasPrefix(s, "*.") {
+			suffixes = append(suffixes, strings.TrimPrefix(s, "*."))
+		} else {
+			exact = append(exact, s)
+		}
+	}
+	return
+}
+
 func New() *gin.Engine {
 	r := gin.Default()
-	// CORS cho FE (Vite port 5173)
-	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Authorization", "Content-Type"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
-	}))
+
+	// ===== CORS =====
+	exact, suffixes := parseCORSOrigins()
+
+	cfg := cors.Config{
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Authorization", "Content-Type", "Accept"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,           // nếu bạn dùng cookie/refresh token
+		MaxAge:           12 * time.Hour, // cache preflight
+	}
+
+	if len(suffixes) == 0 {
+		// Không có wildcard -> dùng danh sách exact
+		cfg.AllowOrigins = exact
+	} else {
+		// Có wildcard (*.domain) -> dùng AllowOriginFunc
+		cfg.AllowOriginFunc = func(origin string) bool {
+			u, err := url.Parse(origin)
+			if err != nil {
+				return false
+			}
+			// So khớp exact (bao gồm schema+host+port)
+			o := u.Scheme + "://" + u.Host
+			for _, e := range exact {
+				if e == o {
+					return true
+				}
+			}
+			// So khớp wildcard theo suffix host
+			host := u.Hostname()
+			for _, suf := range suffixes {
+				if strings.HasSuffix(host, suf) {
+					return true
+				}
+			}
+			return false
+		}
+	}
+
+	r.Use(cors.New(cfg))
+	// ===== End CORS =====
 
 	// Swagger UI
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
+	// DB, migrate, seed admin, DI, routes ... (giữ như bạn đã có)
+	// ...
+	// (phần dưới không đổi)
+
 	// DB
-	cfg := database.LoadConfigFromEnv()
-	db, err := database.Open(cfg)
+	cfgDB := database.LoadConfigFromEnv()
+	db, err := database.Open(cfgDB)
 	if err != nil {
 		panic("cannot connect MySQL: " + err.Error())
 	}
-
-	// Migrate & ensure admin (idempotent)
 	if err := db.AutoMigrate(&models.User{}); err != nil {
 		panic("migrate failed: " + err.Error())
 	}
@@ -64,7 +123,7 @@ func New() *gin.Engine {
 			Username:     "admin",
 			FullName:     "Administrator",
 			Role:         "admin",
-			PasswordHash: hash(adminPass), // chỉ dùng khi create mới
+			PasswordHash: hash(adminPass),
 		}).
 		FirstOrCreate(&admin).Error; err != nil {
 		panic("ensure admin failed: " + err.Error())
@@ -88,22 +147,19 @@ func New() *gin.Engine {
 	// Routes
 	v1 := r.Group("/api/v1")
 	{
-		// --- Public Auth ---
 		v1.POST("/auth/register", a.Register)
 		v1.POST("/auth/login", a.Login)
 		v1.POST("/auth/logout", a.Logout)
 
-		// --- Protected (đã đăng nhập) ---
 		v1.GET("/auth/me", authMW, a.Me)
 
-		// --- ADMIN ONLY ---
 		admin := v1.Group("/admin", authMW, middleware.RequireRoles("admin"))
 		{
-			admin.GET("/users", u.ListUsers)         // @Security BearerAuth (khai báo trong handler)
-			admin.GET("/users/:id", u.GetUser)       // @Security BearerAuth
-			admin.POST("/users", u.CreateUser)       // @Security BearerAuth
-			admin.PUT("/users/:id", u.UpdateUser)    // @Security BearerAuth
-			admin.DELETE("/users/:id", u.DeleteUser) // @Security BearerAuth
+			admin.GET("/users", u.ListUsers)
+			admin.GET("/users/:id", u.GetUser)
+			admin.POST("/users", u.CreateUser)
+			admin.PUT("/users/:id", u.UpdateUser)
+			admin.DELETE("/users/:id", u.DeleteUser)
 		}
 	}
 
