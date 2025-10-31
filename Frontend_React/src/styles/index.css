@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========  COMPONENTS  ========= */
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl shadow border border-gray-100;
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-gray-200 px-3.5 py-2.5
+    outline-none bg-white
+    focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-gray-600 mb-1;
+  }
+
+  .btn-ghost {
+    @apply px-3 py-2 rounded-lg text-gray-600 hover:bg-gray-100 transition;
+  }
+
+  /* Nút chính – gradient, đẹp & chuẩn a11y */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2
+    rounded-xl px-4 py-2.5 font-medium text-white
+    bg-gradient-to-r from-indigo-600 to-violet-600
+    shadow-sm hover:from-indigo-500 hover:to-violet-500
+    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40
+    active:scale-[.98] transition;
+  }
+
+  /* Nút viền (nếu cần dùng thêm) */
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2
+    rounded-xl px-4 py-2.5 font-medium
+    border border-indigo-200 text-indigo-600 bg-white
+    hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30;
+  }
+
+  /* Thẻ form “glassmorphism” dùng cho auth */
+  .auth-card {
+    @apply w-full max-w-md rounded-2xl p-6 sm:p-8
+    bg-white/80 backdrop-blur-xl ring-1 ring-white/50 shadow-xl;
+  }
+}
+
+/* =========  UTILITIES  ========= */
+@layer utilities {
+  .hover-lift { @apply transition-transform duration-150; }
+  .hover-lift:hover { transform: translateY(-2px); }
+
+  .fade-in-up { animation: fadeInUp .25s ease-out both; }
+
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(6px) }
+    to   { opacity: 1; transform: none }
+  }
+
+  /* Nền GIF cho trang auth */
+  .auth-bg {
+    @apply min-h-screen bg-no-repeat bg-cover bg-center;
+    /* Đặt file ở: public/background.gif (như hình bạn gửi) */
+    background-image: url('/background.gif');
+  }
+
+  /* Lớp phủ để tăng tương phản chữ */
+  .auth-overlay {
+    @apply absolute inset-0;
+    background:
+      radial-gradient(1200px 600px at 10% 10%, rgba(255,255,255,.25), transparent 60%),
+      radial-gradient(1000px 500px at 90% 90%, rgba(255,255,255,.20), transparent 60%),
+      rgba(15, 23, 42, .35); /* slate-900/35 */
+  }
+
+  /* Tôn trọng người dùng “Reduce Motion”: dùng ảnh tĩnh nếu có */
+  @media (prefers-reduced-motion: reduce) {
+    .auth-bg { background-image: url('/background.jpg'); } /* (tuỳ chọn) */
+  }
+}
