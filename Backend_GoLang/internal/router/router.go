@@ -29,8 +29,8 @@ func parseCORSOrigins() (exact []string, suffixes []string) {
 		raw = "http://localhost:5173"
 	}
 	for _, s := range strings.Split(raw, ",") {
-		s = strings.TrimSpace(s)
-		s = strings.TrimRight(s, "/") // QUAN TRỌNG: bỏ dấu "/" cuối
+		// cắt trắng & bỏ dấu "/" cuối để so khớp chính xác
+		s = strings.TrimSpace(strings.TrimRight(s, "/"))
 		if s == "" {
 			continue
 		}
@@ -51,14 +51,16 @@ func New() *gin.Engine {
 	debugCORS := os.Getenv("DEBUG_CORS") == "1"
 
 	cfg := cors.Config{
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Authorization", "Content-Type", "Accept", "X-Requested-With"},
-		ExposeHeaders:    []string{"Content-Length", "Set-Cookie"},
+		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		// thêm cả dạng lowercase để chắc ăn
+		AllowHeaders:  []string{"Authorization", "authorization", "Content-Type", "content-type", "Accept", "X-Requested-With"},
+		ExposeHeaders: []string{"Content-Length", "Set-Cookie"},
+		// nếu bạn dùng cookie/refresh token
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}
 
-	// Dùng AllowOriginFunc để hỗ trợ wildcard
+	// hỗ trợ wildcard (*.domain)
 	cfg.AllowOriginFunc = func(origin string) bool {
 		u, err := url.Parse(origin)
 		if err != nil {
@@ -93,15 +95,17 @@ func New() *gin.Engine {
 	}
 
 	r.Use(cors.New(cfg))
-
-	// Bảo đảm mọi preflight đều được trả về 204 (phòng khi middleware bị lách)
+	// đảm bảo preflight luôn có 204 và có headers CORS
 	r.OPTIONS("/*path", func(c *gin.Context) { c.Status(204) })
 	// ===== End CORS =====
+
+	// Healthcheck: test nhanh app có chạy không
+	r.GET("/healthz", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
 
 	// Swagger
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	// ===== DB & DI (giữ nguyên phần còn lại của bạn) =====
+	// ===== DB & DI =====
 	cfgDB := database.LoadConfigFromEnv()
 	db, err := database.Open(cfgDB)
 	if err != nil {
