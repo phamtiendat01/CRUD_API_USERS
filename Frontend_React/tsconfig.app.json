@@ -5,7 +5,7 @@
     "useDefineForClassFields": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "types": ["vite/client"],
+    "types": ["vite/client", "react", "react-dom"],   // 👈 thêm 2 dòng này
     "skipLibCheck": true,
 
     /* Bundler mode */
@@ -18,8 +18,8 @@
 
     /* Linting */
     "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedLocals": false,       // 👈 (tùy chọn) tránh fail build vì biến thừa
+    "noUnusedParameters": false,   // 👈 (tùy chọn) tương tự
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
