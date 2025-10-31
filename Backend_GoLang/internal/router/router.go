@@ -1,6 +1,8 @@
+// Backend_GoLang/internal/router/router.go
 package router
 
 import (
+	"fmt"
 	"net/url"
 	"os"
 	"strings"
@@ -25,19 +27,18 @@ import (
 func parseCORSOrigins() (exact []string, suffixes []string) {
 	raw := os.Getenv("CORS_ORIGINS")
 	if raw == "" {
-		// fallback để dev local không bị chặn
 		raw = "http://localhost:5173"
 	}
 	for _, s := range strings.Split(raw, ",") {
 		s = strings.TrimSpace(s)
+		s = strings.TrimRight(s, "/") // << quan trọng
 		if s == "" {
 			continue
 		}
-		// Cho phép pattern dạng "*.domain.com"
 		if strings.HasPrefix(s, "*.") {
 			suffixes = append(suffixes, strings.TrimPrefix(s, "*."))
 		} else {
-			exact = append(exact, s)
+			exact = append(exact, s) // ví dụ: https://quanlinhansu.netlify.app
 		}
 	}
 	return
@@ -48,53 +49,58 @@ func New() *gin.Engine {
 
 	// ===== CORS =====
 	exact, suffixes := parseCORSOrigins()
+	debugCORS := os.Getenv("DEBUG_CORS") == "1"
 
 	cfg := cors.Config{
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Authorization", "Content-Type", "Accept"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,           // nếu bạn dùng cookie/refresh token
-		MaxAge:           12 * time.Hour, // cache preflight
+		AllowHeaders:     []string{"Authorization", "Content-Type", "Accept", "X-Requested-With"},
+		ExposeHeaders:    []string{"Content-Length", "Set-Cookie"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
 	}
 
-	if len(suffixes) == 0 {
-		// Không có wildcard -> dùng danh sách exact
-		cfg.AllowOrigins = exact
-	} else {
-		// Có wildcard (*.domain) -> dùng AllowOriginFunc
-		cfg.AllowOriginFunc = func(origin string) bool {
-			u, err := url.Parse(origin)
-			if err != nil {
-				return false
-			}
-			// So khớp exact (bao gồm schema+host+port)
-			o := u.Scheme + "://" + u.Host
-			for _, e := range exact {
-				if e == o {
-					return true
-				}
-			}
-			// So khớp wildcard theo suffix host
-			host := u.Hostname()
-			for _, suf := range suffixes {
-				if strings.HasSuffix(host, suf) {
-					return true
-				}
+	// Luôn dùng AllowOriginFunc để support wildcard
+	cfg.AllowOriginFunc = func(origin string) bool {
+		u, err := url.Parse(origin)
+		if err != nil {
+			if debugCORS {
+				fmt.Println("[CORS] invalid origin:", origin)
 			}
 			return false
 		}
+		o := u.Scheme + "://" + u.Host // https://quanlinhansu.netlify.app
+		host := u.Hostname()           // quanlinhansu.netlify.app
+
+		for _, e := range exact {
+			if o == e {
+				if debugCORS {
+					fmt.Println("[CORS] ALLOW exact:", origin)
+				}
+				return true
+			}
+		}
+		for _, suf := range suffixes {
+			if strings.HasSuffix(host, suf) {
+				if debugCORS {
+					fmt.Println("[CORS] ALLOW wildcard:", origin, "matches *.", suf)
+				}
+				return true
+			}
+		}
+		if debugCORS {
+			fmt.Println("[CORS] DENY:", origin)
+		}
+		return false
 	}
 
 	r.Use(cors.New(cfg))
 	// ===== End CORS =====
 
-	// Swagger UI
+	// Swagger
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	// DB, migrate, seed admin, DI, routes ... (giữ như bạn đã có)
-	// ...
-	// (phần dưới không đổi)
-
+	// ===== DB & DI các phần còn lại giữ nguyên của bạn =====
+	// ... (phần dưới giữ nguyên)
 	// DB
 	cfgDB := database.LoadConfigFromEnv()
 	db, err := database.Open(cfgDB)
@@ -150,7 +156,6 @@ func New() *gin.Engine {
 		v1.POST("/auth/register", a.Register)
 		v1.POST("/auth/login", a.Login)
 		v1.POST("/auth/logout", a.Logout)
-
 		v1.GET("/auth/me", authMW, a.Me)
 
 		admin := v1.Group("/admin", authMW, middleware.RequireRoles("admin"))
