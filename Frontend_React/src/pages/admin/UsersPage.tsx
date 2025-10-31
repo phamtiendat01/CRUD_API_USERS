@@ -62,17 +62,23 @@ export default function UsersPage() {
   }, []);
 
   const statusCount = useMemo(() => {
-    const m: Record<Status | "all", number> = {
-      all: rows.length,
-      active: 0,
-      inactive: 0,
-      banned: 0,
-    };
-    rows.forEach((r) => {
-      m[r.status] = (m[r.status] || 0) + 1;
-    });
-    return m;
-  }, [rows]);
+  // Khởi tạo đủ key để đảm bảo luôn có số
+  const m: Record<Status | "all", number> = {
+    all: rows.length,
+    active: 0,
+    inactive: 0,
+    banned: 0,
+  };
+
+  rows.forEach((r) => {
+    // ✅ fallback nếu r.status có thể undefined
+    const key = (r.status ?? "active") as Status;
+    m[key] = (m[key] ?? 0) + 1;
+  });
+
+  return m;
+}, [rows]);
+
 
   const data = useMemo(() => {
     const qLower = q.toLowerCase();
